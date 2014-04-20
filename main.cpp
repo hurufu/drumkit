@@ -17,8 +17,14 @@
 #define ERR_TRANSFER_FAILED 0xfe
 #define ERR_LIBUSB_SPECIFIC 0xfd
 #define ERR_JACK_SPECIFIC 0xfc
+#define ERR_BAD_ARGUMENT 0xfb
+#define ERR_UNKNOWN 0xfa
 
-// Error handling variable
+// Is it good to include such a dependency?
+#include <boost/program_options.hpp>
+namespace po = boost::program_options;
+
+// Error handling variables
 int r = SUCCESS;
 
 libusb_device_handle * open_device(int vendor, int product);
@@ -36,7 +42,32 @@ bool was_free[6];
 bool verbatim = false;
 
 int main (int ac, char* av[])
-{    
+{
+    //BEGIN getopt
+    try {
+        po::options_description usage("Usage");
+        usage.add_options()
+            ("help", "Output this message and exit.")
+            ("verbatim", po::value<bool>(), "Show verbatim output.")
+        ;
+        po::variables_map vm;
+        po::store(po::parse_command_line(ac, av, usage), vm);
+        if (vm.count("help")) {
+            std::cout << usage << std::endl;
+            return 0;
+        }
+        if (vm.count("verbatim"))
+            verbatim = true;
+    } catch (std::exception & e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return ERR_BAD_ARGUMENT;
+    } catch (...) {
+        std::cerr << "Uknown exception!" << std::endl;
+        return ERR_UNKNOWN;
+    }
+    //END getopt
+    
+    
     int transfered;
     jack_nframes_t nframes;
     const char jack_midi_drum_str[] = "Dreamlink Foldup Drumk Kit";

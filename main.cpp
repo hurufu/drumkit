@@ -1,3 +1,8 @@
+//% Rollup drumkit userspace driver
+//% Alex Grabovski <hurufu@gmail.com>
+//% 2014-04-21
+//% WTFPL
+
 #include <iostream>
 #include <csignal>
 #include <unistd.h>

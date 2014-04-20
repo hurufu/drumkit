@@ -20,10 +20,6 @@
 #define ERR_BAD_ARGUMENT 0xfb
 #define ERR_UNKNOWN 0xfa
 
-// Is it good to include such a dependency?
-#include <boost/program_options.hpp>
-namespace po = boost::program_options;
-
 // Error handling variables
 int r = SUCCESS;
 
@@ -39,38 +35,63 @@ volatile unsigned char buffer[8];
 
 bool pad[6];
 bool was_free[6];
-bool verbatim = false;
+
+int verbatim = 0;
+
+char pad_map[NOF_PADS] = {0x20, 0x21, 0x22, 0x23, 0x24, 0x25};
 
 int main (int ac, char* av[])
 {
-    //BEGIN getopt
-    try {
-        po::options_description usage("Usage");
-        usage.add_options()
-            ("help", "Output this message and exit.")
-            ("verbatim", po::value<bool>(), "Show verbatim output.")
-        ;
-        po::variables_map vm;
-        po::store(po::parse_command_line(ac, av, usage), vm);
-        if (vm.count("help")) {
-            std::cout << usage << std::endl;
-            return 0;
-        }
-        if (vm.count("verbatim"))
-            verbatim = true;
-    } catch (std::exception & e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return ERR_BAD_ARGUMENT;
-    } catch (...) {
-        std::cerr << "Uknown exception!" << std::endl;
-        return ERR_UNKNOWN;
-    }
-    //END getopt
-    
-    
     int transfered;
     jack_nframes_t nframes;
     const char jack_midi_drum_str[] = "Dreamlink Foldup Drumk Kit";
+    char * pad_str = NULL;
+    
+    std::cout << "Default mapping:";
+    for(int q=0; q<NOF_PADS; q++)
+        std::cout << "\tPad" << q << ": " << (int) pad_map[q];
+    std::cout << std::endl;
+    
+    //BEGIN getopt
+    //FIXME I dont have enough stamina to write getopt, and I don't want getopt
+    // to be larger than actual driver! I have a plan 'bout ultimate™ getopt, 
+    // but I don't think I'll make it soon... And yeah next routine is 
+    // dnagerous, but I like danger :P.
+    char c;
+    int tmp;
+    while ((c = getopt (ac, av, "hv:p:n:")) != -1) {
+        switch (c) {
+            case 'h':
+                std::cout << "!!WARNING CODE IS VERY UNMATURE, INCORRECT VALUES WILL CAUSE UNPREDICTABLE RESULTS!!\n"
+                    << "Usage:\n"
+                    << "\t-h\t\tOutput this message and exit\n"
+                    << "\t-v <level>\tVerbosity level (default 0)\n"
+                    << "\t-p <number>\tAsign to pad 0..5\n"
+                    << "\t-n <note>\tnote in range 0..127\n";
+                return 0;
+            case 'v':
+                verbatim = atoi(optarg);
+                break;
+            case 'p':
+                tmp = atoi(optarg);
+                break;
+            case 'n':
+                pad_map[tmp]=atoi(optarg);
+                break;
+            case '?':
+                return ERR_BAD_ARGUMENT;
+            default:
+                abort();
+        }
+    }
+    //END getopt
+    
+    std::cout << "Reassigned mapping:";
+    for(int q=0; q<NOF_PADS; q++)
+        std::cout << "\tPad" << q << ": " << (int) pad_map[q];
+    std::cout << std::endl;
+    
+    return 0;
 
     r = libusb_init(NULL);
     if (r != SUCCESS) {
@@ -181,7 +202,7 @@ static int process(jack_nframes_t nframes, void *arg)
             was_free[i] = false;
             midi_buffer = jack_midi_event_reserve(port_buf, 0, 3);
             midi_buffer[0] = 0x9A;
-            midi_buffer[1] = 0x20 + i;
+            midi_buffer[1] = pad_map[i];
             midi_buffer[2] = 0x7F;
         }
     } else {
@@ -189,7 +210,7 @@ static int process(jack_nframes_t nframes, void *arg)
             was_free[i] = true;
             midi_buffer = jack_midi_event_reserve(port_buf, 0, 3);
             midi_buffer[0] = 0x8A;
-            midi_buffer[1] = 0x20 + i;
+            midi_buffer[1] = pad_map[i];
             midi_buffer[2] = 0x00;
         }
     }

@@ -177,7 +177,6 @@ int main (int ac, char* av[])
                 break;
             }
         }
-        std::cout << "\t" << std::hex << (int) p << std::flush;
         for (int i = 0; i < NOF_PADS; i++) {
             pad[i] = p & 1;
             p >>= 1;

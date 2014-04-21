@@ -36,7 +36,7 @@ static void sigexit(int);
 libusb_device_handle * usb_drumkit_handle = NULL;
 jack_client_t * jack_midi_drum = NULL;
 jack_port_t * output_port;
-volatile unsigned char buffer[8];
+volatile unsigned char raw[8];
 
 bool pad[6];
 bool was_free[6];
@@ -52,10 +52,7 @@ int main (int ac, char* av[])
     const char jack_midi_drum_str[] = "Dreamlink Foldup Drumk Kit";
     char * pad_str = NULL;
     
-    std::cout << "Default mapping:";
-    for(int q=0; q<NOF_PADS; q++)
-        std::cout << "\tPad" << q << ": " << (int) pad_map[q];
-    std::cout << std::endl;
+    int buffer = 0;
     
     //BEGIN getopt
     //FIXME I dont have enough stamina to write getopt, and I don't want getopt
@@ -63,8 +60,8 @@ int main (int ac, char* av[])
     // but I don't think I'll make it soon... And yeah next routine is 
     // dnagerous, but I like danger :P.
     char c;
-    int tmp;
-    while ((c = getopt (ac, av, "hv:p:n:")) != -1) {
+    int p_tmp = -1;
+    while ((c = getopt (ac, av, "hv:p:n:b:")) != -1) {
         switch (c) {
             case 'h':
                 std::cout << "!!WARNING CODE IS VERY UNMATURE, INCORRECT VALUES WILL CAUSE UNPREDICTABLE RESULTS!!\n"
@@ -72,16 +69,20 @@ int main (int ac, char* av[])
                     << "\t-h\t\tOutput this message and exit\n"
                     << "\t-v <level>\tVerbosity level (default 0)\n"
                     << "\t-p <number>\tAsign to pad 0..5\n"
-                    << "\t-n <note>\tnote in range 0..127\n";
+                    << "\t-n <note>\tnote in range 0..127\n"
+                    << "\t-b <integer>\t Select size of buffer (default 0)\n";
                 return 0;
             case 'v':
                 verbatim = atoi(optarg);
                 break;
             case 'p':
-                tmp = atoi(optarg);
+                p_tmp = atoi(optarg);
                 break;
             case 'n':
-                pad_map[tmp]=atoi(optarg);
+                pad_map[p_tmp]=atoi(optarg);
+                break;
+            case 'b':
+                buffer = atoi(optarg);
                 break;
             case '?':
                 return ERR_BAD_ARGUMENT;
@@ -91,35 +92,38 @@ int main (int ac, char* av[])
     }
     //END getopt
     
-    std::cout << "Reassigned mapping:";
-    for(int q=0; q<NOF_PADS; q++)
-        std::cout << "\tPad" << q << ": " << (int) pad_map[q];
-    std::cout << std::endl;
+    if (verbatim)
+        std::cout << "Selected buffer: " << buffer << std::endl;
     
-    return 0;
+    if (p_tmp != -1) {
+        std::cout << "Reassigned mapping:";
+        for(int q=0; q<NOF_PADS; q++)
+            std::cout << "\tPad" << q << ": " << (int) pad_map[q];
+        std::cout << std::endl;
+    }
 
     r = libusb_init(NULL);
     if (r != SUCCESS) {
-        std::cerr << "libusb_init: " << libusb_strerror((enum libusb_error)r) << std::endl;
+        std::cerr << "libusb_init: " << libusb_strerror((enum libusb_error)r) << "\n";
         return ERR_LIBUSB_SPECIFIC;
     }
     libusb_set_debug(NULL, LIBUSB_LOG_LEVEL_INFO);
     usb_drumkit_handle = open_device(DRUMKIT_VENDOR_ID, DRUMKIT_PRODUCT_ID);
     if ( usb_drumkit_handle == NULL ) {
-        std::cerr << "Unable to open drumkit! Probably it isn't connected." << std::endl;
+        std::cerr << "Unable to open drumkit! Probably it isn't connected.\n";
         libusb_exit(NULL);
         return ERR_LIBUSB_SPECIFIC;
     }
     r = libusb_set_auto_detach_kernel_driver(usb_drumkit_handle, 1);
     if (r != SUCCESS) {
-        std::cerr << "libusb_set_auto_detach_kernel_driver: " << libusb_strerror((enum libusb_error)r) << std::endl;
+        std::cerr << "libusb_set_auto_detach_kernel_driver: " << libusb_strerror((enum libusb_error)r) << "\n";
         libusb_close(usb_drumkit_handle);
         libusb_exit(NULL);
         return ERR_LIBUSB_SPECIFIC;
     }
     r = libusb_claim_interface(usb_drumkit_handle, 0);
     if (r != SUCCESS) {
-        std::cerr << "libusb_claim_interface: " << libusb_strerror((enum libusb_error)r) << std::endl;
+        std::cerr << "libusb_claim_interface: " << libusb_strerror((enum libusb_error)r) << "\n";
         libusb_close(usb_drumkit_handle);
         libusb_exit(NULL);
         return ERR_LIBUSB_SPECIFIC;
@@ -127,7 +131,7 @@ int main (int ac, char* av[])
 
     jack_midi_drum = jack_client_open(jack_midi_drum_str, JackNullOption, NULL);
     if (jack_midi_drum == NULL) {
-        std::cerr << "Unable to initiate jack client! Is JACK server running?" << std::endl;
+        std::cerr << "Unable to initiate jack client! Is JACK server running?\n";
         libusb_release_interface(usb_drumkit_handle, 0); // Check exit codes
         libusb_close(usb_drumkit_handle);
         libusb_exit(NULL);
@@ -141,7 +145,7 @@ int main (int ac, char* av[])
 
     r = jack_activate(jack_midi_drum);
     if (r != SUCCESS) {
-        std::cerr << "Cannot activate client --- " << r << std::endl;
+        std::cerr << "Cannot activate client --- " << r << "\n";
         jack_client_close(jack_midi_drum);
         libusb_close(usb_drumkit_handle);
         libusb_exit(NULL);
@@ -152,25 +156,31 @@ int main (int ac, char* av[])
     signal(SIGHUP,  sigexit);
     signal(SIGTERM, sigexit);
     signal(SIGINT,  sigexit);
-        
-    while(true)
-    {
-        r = libusb_interrupt_transfer(usb_drumkit_handle, 0x81, (unsigned char*) buffer, sizeof(buffer), &transfered, 0);
-        if(r >= 0) {
-            if (transfered != sizeof(buffer)) {
-                std::cerr << "Answer length mismatch." << std::endl;
-                r = ERR_ANSWER_LENGTH_MISMATCH;
+    
+    while(true) {
+        unsigned char p = 0;
+        for(int i = 0; i <= buffer; i++)
+        {
+            r = libusb_interrupt_transfer(usb_drumkit_handle, 0x81, (unsigned char*) raw, sizeof(raw), &transfered, 0);
+            if(r >= 0) {
+                if (transfered != sizeof(raw)) {
+                    std::cerr << "Answer length mismatch.\n";
+                    r = ERR_ANSWER_LENGTH_MISMATCH;
+                    break;
+                }
+                for (int j = 0; j < transfered; j++)
+                    p |= raw[j];
+            }
+            else {
+                std::cerr << libusb_strerror((enum libusb_error)r) << ".\n";
+                r = ERR_TRANSFER_FAILED;
                 break;
             }
-            for (int i = 0; i < NOF_PADS; i++) {
-                pad[i] = buffer[0] & 1;
-                buffer[0] >>= 1;
-            }
         }
-        else {
-            std::cerr << libusb_strerror((enum libusb_error)r) << "." << std::endl;
-            r = ERR_TRANSFER_FAILED;
-            break;
+        std::cout << "\t" << std::hex << (int) p << std::flush;
+        for (int i = 0; i < NOF_PADS; i++) {
+            pad[i] = p & 1;
+            p >>= 1;
         }
     }
 
@@ -191,7 +201,7 @@ static void sigexit(int sig)
     libusb_close(usb_drumkit_handle);
     libusb_exit(NULL);
 
-    std::cerr << "Signal " << sig << " received, exiting ..." << std::endl;
+    std::cerr << "Signal " << sig << " received, exiting ...\n";
     exit(0);
 }
 
@@ -233,7 +243,7 @@ libusb_device_handle * open_device(int vendor, int product)
 
     int cnt = libusb_get_device_list(NULL, &devices);
     if (cnt < 0) {
-        std::cerr << "libusb_get_device_list: " << libusb_strerror((enum libusb_error)cnt) << std::endl;
+        std::cerr << "libusb_get_device_list: " << libusb_strerror((enum libusb_error)cnt) << "\n";
         return NULL;
     }
 
@@ -245,13 +255,13 @@ libusb_device_handle * open_device(int vendor, int product)
             
             r = libusb_get_config_descriptor(devices[i], 0, &config);
             if (r < 0) {
-                std::cerr << "libusb_get_config_descriptor: " << libusb_strerror((enum libusb_error)r) << std::endl;
+                std::cerr << "libusb_get_config_descriptor: " << libusb_strerror((enum libusb_error)r) << "\n";
                 return NULL;
             }
             
             r = libusb_open(devices[i], &usb_drumkit_handle);
             if (r < 0) {
-                std::cerr << "libusb_open: " << libusb_strerror((enum libusb_error)r) << std::endl;
+                std::cerr << "libusb_open: " << libusb_strerror((enum libusb_error)r) << "\n";
                 return NULL;
             }
         }

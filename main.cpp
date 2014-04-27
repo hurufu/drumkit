@@ -13,6 +13,7 @@
 
 #define DRUMKIT_VENDOR_ID 0x1941
 #define DRUMKIT_PRODUCT_ID 0x8021
+#define VERSION 0.2
 
 #define NOF_PADS 6
 
@@ -158,8 +159,11 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
     // dnagerous, but I like danger :P.
     char c;
     int p_tmp = -1;
-    while ((c = getopt (ac, av, "hv:p:n:b:")) != -1) {
+    while ((c = getopt (ac, av, "Vhv:p:n:b:")) != -1) {
         switch (c) {
+            case 'V':
+                std::cout << "Verison " << VERSION << std::endl;
+                exit(0);
             case 'h':
                 std::cout << "!!WARNING CODE IS VERY UNMATURE, INCORRECT VALUES WILL CAUSE UNPREDICTABLE RESULTS!!\n"
                     << "Usage:\n"

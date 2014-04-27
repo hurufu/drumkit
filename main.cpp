@@ -10,7 +10,7 @@
 #include <jack/jack.h>
 #include <jack/midiport.h>
 
-#define VERSION 0.2
+#define VERSION 0.3
 #define DRUMKIT_VENDOR_ID 0x1941
 #define DRUMKIT_PRODUCT_ID 0x8021
 #define DRUMKIT_WMAXPACKETSIZE 8
@@ -19,19 +19,19 @@
 
 // Error codes
 #define SUCCESS 0
-#define ERR_ANSWER_LENGTH_MISMATCH 0xff
-#define ERR_TRANSFER_FAILED 0xfe
-#define ERR_LIBUSB_SPECIFIC 0xfd
-#define ERR_JACK_SPECIFIC 0xfc
-#define ERR_BAD_ARGUMENT 0xfb
-#define ERR_UNKNOWN 0xfa
-#define ERR_JACK_SERVER_CLOSED 0xf9
+#define ERR_ANSWER_LENGTH_MISMATCH 0x1f
+#define ERR_TRANSFER_FAILED 0x1e
+#define ERR_LIBUSB_SPECIFIC 0x1d
+#define ERR_JACK_SPECIFIC 0x1c
+#define ERR_BAD_ARGUMENT 0x1b
+#define ERR_UNKNOWN 0x1a
+#define ERR_JACK_SERVER_CLOSED 0x19
 
 // Program state flags
-int r = SUCCESS;
-int status = SUCCESS;
-int verbatim = 0; 
-bool run = true;
+int r = SUCCESS; // Is used to temporary hold functions return values
+int status = SUCCESS; // Overall program status
+int verbatim = 0; // Verbosity level
+bool run = true; // Main loop trigger
 
 struct jack_callback_arg {
     jack_port_t * output_port;
@@ -64,32 +64,32 @@ int main (int ac, char ** av)
     
     r = libusb_init(NULL);
     if (r != SUCCESS) {
-        std::cerr << "libusb_init: " << libusb_strerror((enum libusb_error)r) << "\n";
+        std::cerr << "ERROR: " << libusb_strerror((enum libusb_error)r) << "\n";
         return ERR_LIBUSB_SPECIFIC;
     }
     libusb_set_debug(NULL, LIBUSB_LOG_LEVEL_INFO);
     usb_drumkit_handle = open_device(DRUMKIT_VENDOR_ID, DRUMKIT_PRODUCT_ID);
     if ( usb_drumkit_handle == NULL ) {
-        std::cerr << "Unable to open drumkit! Probably it isn't connected.\n";
+        std::cerr << "ERROR: Unable to open drumkit! Probably it isn't connected.\n";
         status = ERR_LIBUSB_SPECIFIC;
         goto usb_exit;
     }
     r = libusb_set_auto_detach_kernel_driver(usb_drumkit_handle, 1);
     if (r != SUCCESS) {
-        std::cerr << "libusb_set_auto_detach_kernel_driver: " << libusb_strerror((enum libusb_error)r) << "\n";
+        std::cerr << "ERROR: Could not set auto detach usb kernel driver. " << libusb_strerror((enum libusb_error)r) << "\n";
         status = ERR_LIBUSB_SPECIFIC;
         goto usb_close;
     }
     r = libusb_claim_interface(usb_drumkit_handle, 0);
     if (r != SUCCESS) {
-        std::cerr << "libusb_claim_interface: " << libusb_strerror((enum libusb_error)r) << "\n";
+        std::cerr << "ERROR: Cannot claim interface. " << libusb_strerror((enum libusb_error)r) << "\n";
         status = ERR_LIBUSB_SPECIFIC;
         goto usb_close;
     }
 
     jack_midi_drum = jack_client_open(jack_midi_drum_str, JackNullOption, NULL);
     if (jack_midi_drum == NULL) {
-        std::cerr << "Unable to initiate jack client! Is JACK server running?\n";
+        std::cerr << "ERROR: Unable to initiate JACK client! Is JACK server running?\n";
         status = ERR_JACK_SPECIFIC;
         goto usb_release;
     }
@@ -98,7 +98,7 @@ int main (int ac, char ** av)
     jack_on_shutdown(jack_midi_drum, jack_shutdown_handler, &r);
     r = jack_activate(jack_midi_drum);
     if (r != SUCCESS) {
-        std::cerr << "Cannot activate client --- " << r << "\n";
+        std::cerr << "ERROR: Cannot activate JACK client --- " << r << "\n";
         status = ERR_JACK_SPECIFIC;
         goto jack_close;
     }
@@ -122,7 +122,7 @@ int main (int ac, char ** av)
             );
             if(r >= 0) {
                 if (transfered != DRUMKIT_WMAXPACKETSIZE) {
-                    std::cerr << "Answer length mismatch.\n";
+                    std::cerr << "ERROR: Answer length mismatch.\n";
                     status = ERR_ANSWER_LENGTH_MISMATCH;
                     goto jack_deact;
                 }
@@ -130,7 +130,7 @@ int main (int ac, char ** av)
                     p |= raw[j];
             }
             else {
-                std::cerr << libusb_strerror((enum libusb_error)r) << ".\n";
+                std::cerr << "ERROR: " << libusb_strerror((enum libusb_error)r) << ".\n";
                 status = ERR_TRANSFER_FAILED;
                 goto jack_deact;
             }
@@ -178,7 +178,7 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
                     << "\t-v <level>\tVerbosity level (default 0). Values 1+ are not implemented\n"
                     << "\t-p <number>\tAsign to pad 0..5\n"
                     << "\t-n <note>\tnote in range 0..127\n"
-                    << "\t-b <integer>\tSelect size of loop_buffer (default 0)\n";
+                    << "\t-b <integer>\tSelect size of loop buffer (default 0)\n";
                 exit(r);
             case 'v':
                 verbatim = atoi(optarg);
@@ -202,10 +202,10 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
         }
     }
     if (verbatim)
-        std::cout << "Selected loop_buffer: " << drumkit_callback->loop_buffer << std::endl;
+        std::cout << "INFO: Selected loop buffer size: " << drumkit_callback->loop_buffer << std::endl;
     
     if (p_tmp != -1) {
-        std::cout << "Reassigned mapping:";
+        std::cout << "INFO: Reassigned mapping:";
         for(int q=0; q<NOF_PADS; q++)
             std::cout << "\tPad" << q << ": " << (int) drumkit_callback->pad_map[q];
         std::cout << std::endl;
@@ -223,7 +223,7 @@ void jack_shutdown_handler(void * arg)
     //TODO: Generate signal SIGHUP or SIGUSR1.
     run = false;
     status = ERR_JACK_SERVER_CLOSED;
-    std::cerr << "JACK server is not running anymore, exiting\n";
+    std::cerr << "ERROR: JACK server is not running anymore, exiting\n";
 }
 
 static int process(jack_nframes_t nframes, void * arg)
@@ -266,7 +266,7 @@ libusb_device_handle * open_device(int vendor, int product)
 
     int cnt = libusb_get_device_list(NULL, &devices);
     if (cnt < 0) {
-        std::cerr << "libusb_get_device_list: " << libusb_strerror((enum libusb_error)cnt) << "\n";
+        std::cerr << "ERROR: Cannot get usb devices list." << libusb_strerror((enum libusb_error)cnt) << "\n";
         return NULL;
     }
 
@@ -274,15 +274,15 @@ libusb_device_handle * open_device(int vendor, int product)
         libusb_get_device_descriptor(devices[i], &desc);
         if (desc.idVendor == vendor && desc.idProduct == product) {
             if (verbatim)
-                std::cout << "Rollup Drumkit connected!\n" << std::endl;
+                std::cout << "INFO: Rollup Drumkit connected.\n" << std::endl;
             r = libusb_get_config_descriptor(devices[i], 0, &config);
             if (r < 0) {
-                std::cerr << "libusb_get_config_descriptor: " << libusb_strerror((enum libusb_error)r) << "\n";
+                std::cerr << "ERROR: Cannot get config descriptor. " << libusb_strerror((enum libusb_error)r) << "\n";
                 return NULL;
             }
             r = libusb_open(devices[i], &devh);
             if (r < 0) {
-                std::cerr << "libusb_open: " << libusb_strerror((enum libusb_error)r) << "\n";
+                std::cerr << "ERROR: Cannot open usb device. " << libusb_strerror((enum libusb_error)r) << "\n";
                 return NULL;
             }
         }

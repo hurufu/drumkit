@@ -40,15 +40,6 @@ struct jack_callback_arg {
     int loop_buffer;
 };
 
-//TODO:
-//
-//  - dbus integration
-//  - gui wrapper
-//  - jack transport
-//  - jackd autoquit
-//  - ???
-//  - PROFIT
-
 libusb_device_handle * open_device(int vendor, int product);
 static int process(jack_nframes_t nframes, void * arg);
 void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback);

@@ -1,7 +1,7 @@
 //% Rollup drumkit userspace driver
 //% Alex Grabovski <hurufu@gmail.com>
 //% 2014-04-21
-//% WTFPL
+//% MIT License
 
 #include <iostream>
 #include <csignal>
@@ -40,12 +40,20 @@ struct jack_callback_arg {
     int loop_buffer;
 };
 
+//TODO:
+//
+//  - dbus integration
+//  - gui wrapper
+//  - jack transport
+//  - jackd autoquit
+//  - ???
+//  - PROFIT
+
 libusb_device_handle * open_device(int vendor, int product);
 static int process(jack_nframes_t nframes, void * arg);
 void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback);
 static void signal_handler(int);
 void jack_shutdown_handler(void *);
-
 
 int main (int ac, char ** av)
 {
@@ -62,6 +70,7 @@ int main (int ac, char ** av)
     
     option_handler(ac, av, &drumkit_callback);
     
+    // Initialisation sequence
     r = libusb_init(NULL);
     if (r != SUCCESS) {
         std::cerr << "ERROR: " << libusb_strerror((enum libusb_error)r) << "\n";
@@ -76,7 +85,7 @@ int main (int ac, char ** av)
     }
     r = libusb_set_auto_detach_kernel_driver(usb_drumkit_handle, 1);
     if (r != SUCCESS) {
-        std::cerr << "ERROR: Could not set auto detach usb kernel driver. " << libusb_strerror((enum libusb_error)r) << "\n";
+        std::cerr << "ERROR: Could not set auto detachment of usb kernel driver. " << libusb_strerror((enum libusb_error)r) << "\n";
         status = ERR_LIBUSB_SPECIFIC;
         goto usb_close;
     }
@@ -86,7 +95,6 @@ int main (int ac, char ** av)
         status = ERR_LIBUSB_SPECIFIC;
         goto usb_close;
     }
-
     jack_midi_drum = jack_client_open(jack_midi_drum_str, JackNullOption, NULL);
     if (jack_midi_drum == NULL) {
         std::cerr << "ERROR: Unable to initiate JACK client! Is JACK server running?\n";
@@ -108,6 +116,7 @@ int main (int ac, char ** av)
     signal(SIGTERM, signal_handler);
     signal(SIGINT,  signal_handler);
     
+    // Main loop
     while(run) {
         unsigned char p = 0;
         for(int i = 0; i <= drumkit_callback.loop_buffer; i++)
@@ -141,10 +150,13 @@ int main (int ac, char ** av)
         }
     }
 
+    // Gracefull exit
 jack_deact:
+    // It is impossible to deactivate jack client if server is not running
     if (status != ERR_JACK_SERVER_CLOSED)
         jack_deactivate(jack_midi_drum);
 jack_close:
+    // Same
     if (status != ERR_JACK_SERVER_CLOSED)
         jack_client_close(jack_midi_drum);
 usb_release:
@@ -160,12 +172,11 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
 {
     //FIXME I dont have enough stamina to write getopt, and I don't want getopt
     // to be larger than actual driver! I have a plan 'bout ultimate™ getopt, 
-    // but I don't think I'll make it soon... And yeah next routine is 
-    // dnagerous, but I like danger :P.
+    // but I don't think I'll make it soon...
     char c;
     int p_tmp = -1;
     int n_tmp;
-    while ((c = getopt (ac, av, "Vhv:p:n:b:")) != -1) {
+    while ((c = getopt (ac, av, "Vhv:p:n:b:i:c:a")) != -1) {
         switch (c) {
             case 'V':
                 std::cout << "Verison " << VERSION << std::endl;
@@ -178,20 +189,27 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
                     << "\t-v <level>\tVerbosity level (default 0). Values 1+ are not implemented\n"
                     << "\t-p <number>\tAsign to pad 0..5\n"
                     << "\t-n <note>\tnote in range 0..127\n"
-                    << "\t-b <integer>\tSelect size of loop buffer (default 0)\n";
+                    << "\t-b <integer>\tSelect size of loop buffer (default 0)\n"
+                    << "\t-i <integer>\tIntensity of note for selected pad [NOT IMPLEMENTED]\n"
+                    << "\t-c <path>\tLoad config [NOT IMPLEMENTED\n]"
+                    << "\t-a\t\tClose jackd on exit [NOT IMPLEMENTED]\n";
                 exit(r);
             case 'v':
                 verbatim = atoi(optarg);
                 break;
             case 'p':
                 p_tmp = atoi(optarg);
-                if (p_tmp >= NOF_PADS)
+                if (p_tmp >= NOF_PADS) {
+                    std::cerr << "ERROR: Bad pad number. Must be 0..5\n";
                     exit(ERR_BAD_ARGUMENT);
+                }
                 break;
             case 'n':
                 n_tmp = atoi(optarg);
-                if (n_tmp > 127)
+                if (n_tmp > 127) {
+                    std::cerr << "ERROR: Bad note value. Must be 0..127\n";
                     exit(ERR_BAD_ARGUMENT);
+                }
                 drumkit_callback->pad_map[p_tmp] = n_tmp;
                 break;
             case 'b':
@@ -215,7 +233,7 @@ void option_handler(int ac, char ** av, jack_callback_arg * drumkit_callback)
 static void signal_handler(int sig)
 {
     run = false;
-    std::cerr << "Signal " << sig << " received, exiting ...\n";
+    std::cerr << "INFO: Signal " << sig << " received, exiting ...\n";
 }
 
 void jack_shutdown_handler(void * arg)

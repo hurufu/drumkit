@@ -23,7 +23,7 @@ delay.
 To check how note number and actual drum sound corresponds look at
 <http://www.midi.org/techspecs/gm1sound.php>
 
-Pad numbers in my case was:
+Pad numbers in my case were:
 
     1 3 2
     6 5 4
